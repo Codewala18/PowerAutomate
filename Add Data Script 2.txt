@@ -1,0 +1,115 @@
+interface ArrayOfData {
+  AccountName: string;
+  AccountID: string;
+  MALCode: string;
+  BusinessApplication: string;
+  RoleEntitlement: string;
+  RoleEntitlementDescription: string;
+  CostCenter: string;
+  AttestRevoke: string;
+  RevokeComments: string;
+  AttestedBy: string;
+  AttestedOn: string;
+}
+
+function main(
+  workbook: ExcelScript.Workbook,
+  arrayfromflow: ArrayOfData[],
+  sheetname: string
+) {
+  let selectedSheet = workbook.getActiveWorksheet();
+
+  try { selectedSheet.setName(sheetname); } catch (e) {}
+
+  selectedSheet.getRange("A1:K1").setValues([[
+    "Account Name",
+    "Account ID",
+    "MAL Code",
+    "Business Application",
+    "Role/Entitlement",
+    "Role / Entitlement Description",
+    "Cost Center",
+    "Attest / Revoke",
+    "Revoke Comments",
+    "Attested by",
+    "Attested On"
+  ]]);
+
+  try {
+    let newTable = workbook.addTable(selectedSheet.getRange("A1:K1"), true);
+    try { newTable.setName("Table1"); } catch (e) {}
+  } catch (e) {}
+
+  if (arrayfromflow && arrayfromflow.length > 0) {
+    let rows: (string | null)[][] = arrayfromflow.map(item => [
+      item.AccountName || null,
+      item.AccountID || null,
+      item.MALCode || null,
+      item.BusinessApplication || null,
+      item.RoleEntitlement || null,
+      item.RoleEntitlementDescription || null,
+      item.CostCenter || null,
+      item.AttestRevoke || null,
+      item.RevokeComments || null,
+      item.AttestedBy || null,
+      item.AttestedOn || null
+    ]);
+    selectedSheet.getRangeByIndexes(1, 0, rows.length, rows[0].length).setValues(rows);
+  }
+
+  // Dropdown in column H
+  let maxRow = Math.max(arrayfromflow.length + 100, 2);
+  let ddRange = selectedSheet.getRange(`H2:H${maxRow}`);
+  try { ddRange.getDataValidation()?.clear(); } catch (e) {}
+  try {
+    ddRange.getDataValidation().setRule({
+      list: {
+        inCellDropDown: true,
+        source: "Attest,Revoke"
+      }
+    });
+  } catch (e) {}
+
+  // Formatting
+  let usedRange = selectedSheet.getUsedRange();
+  if (usedRange) {
+    try { usedRange.getFormat().autofitColumns(); } catch (e) {}
+    try { usedRange.getFormat().autofitRows(); } catch (e) {}
+    try { usedRange.getFormat().setHorizontalAlignment(ExcelScript.HorizontalAlignment.center); } catch (e) {}
+    try { usedRange.getFormat().setVerticalAlignment(ExcelScript.VerticalAlignment.center); } catch (e) {}
+
+    // Autofit Column F
+    try {
+      let rowCount = usedRange.getRowCount();
+      if (rowCount > 1) {
+        let colF = selectedSheet.getRangeByIndexes(0, 5, rowCount, 1);
+        colF.getFormat().autofitColumns();
+      }
+    } catch (e) {}
+  }
+
+  // Protection
+  try { selectedSheet.getProtection().unprotect(); } catch (e) {}
+  if (usedRange) {
+    try { usedRange.getFormat().getProtection().setLocked(false); } catch (e) {}
+    let lastRow = Math.max(2, arrayfromflow.length + 1);
+    try {
+      let rangesToLock = [
+        selectedSheet.getRange(`A2:G${lastRow}`) // Lock only A–G
+      ];
+      rangesToLock.forEach(r => r.getFormat().getProtection().setLocked(true));
+
+      selectedSheet.getRange("A1:K1").getFormat().getProtection().setLocked(false); // Header unlocked
+      selectedSheet.getRange(`H2:H${lastRow}`).getFormat().setLocked(false); // H unlocked
+      selectedSheet.getRange(`I2:K${lastRow}`).getFormat().setLocked(false); // I–K unlocked
+    } catch (e) {}
+  }
+  try {
+    selectedSheet.getProtection().protect({
+      selectionMode: ExcelScript.ProtectionSelectionMode.unlocked,
+      allowAutoFilter: true
+    });
+  } catch (e) {}
+
+  console.log("Script finished: Data inserted, dropdown set, Column F autofitted, protection applied.");
+}

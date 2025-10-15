@@ -1,0 +1,166 @@
+function main(
+  workbook: ExcelScript.Workbook,
+  arrayfromflow: arrayofdata[],
+  sheetname: string
+) {
+  // Get active worksheet
+  let selectedSheet = workbook.getActiveWorksheet();
+
+  // Try to rename (ignore error if not allowed)
+  try {
+    selectedSheet.setName(sheetname);
+  } catch (e) {
+    // ignore rename errors in some Flow contexts
+  }
+
+  // Set header row (A1:K1)
+  selectedSheet.getRange("A1:K1").setValues([[
+    "Account Name",
+    "Account ID",
+    "MAL Code",
+    "Business Application",
+    "Role/Entitlement",
+    "Role / Entitlement Description",
+    "Cost Center",
+    "Attest / Revoke",
+    "Revoke Comments",
+    "Attested by",
+    "Attested On"
+  ]]);
+
+  // Create a new table (safe: try/catch if name already exists)
+  try {
+    let newTable = workbook.addTable(selectedSheet.getRange("A1:K1"), true);
+    try { newTable.setName("MyTable"); } catch (e) { /* ignore if name conflict */ }
+  } catch (e) {
+    // ignore table create errors in some Flow contexts
+  }
+
+  // Starting row for data
+  const starterrow = 2;
+
+  // Insert data from flow
+  for (let i = 0; i < arrayfromflow.length; i++) {
+    const currentObject = arrayfromflow[i];
+
+    const formattedrow = [[
+      currentObject.AccountName,
+      currentObject.AccountID,
+      currentObject.MALCode,
+      currentObject.BusinessApplication,
+      currentObject.RoleEntitlement,
+      currentObject.RoleEntitlementDescription,
+      currentObject.CostCenter,
+      currentObject.AttestRevoke,
+      currentObject.RevokeComments,
+      currentObject.AttestedBy,
+      currentObject.AttestedOn
+    ]];
+
+    const rowRange = `A${starterrow + i}:K${starterrow + i}`;
+    selectedSheet.getRange(rowRange).setValues(formattedrow);
+  }
+
+  // Apply dropdown to column H ("Attest / Revoke")
+  let maxRow = arrayfromflow.length + 100; // buffer rows
+  let ddRange = selectedSheet.getRange(`H2:H${maxRow}`);
+
+  // Clear existing validation (safe)
+  try { ddRange.getDataValidation()?.clear(); } catch (e) { /* ignore */ }
+
+  // Dropdown values
+  let dropdownValues = "Attest,Revoke";
+
+  // Apply drop-down (safe)
+  try {
+    ddRange.getDataValidation().setRule({
+      list: {
+        inCellDropDown: true,
+        source: dropdownValues
+      }
+    });
+  } catch (e) {
+    // ignore if this API is restricted in Flow context
+  }
+
+  // ===== Formatting (autofit per column + align center) =====
+  let usedRange = selectedSheet.getUsedRange();
+  if (usedRange) {
+    // get start indexes and counts
+    let startRow = usedRange.getRowIndex();      // 0-based
+    let startCol = usedRange.getColumnIndex();   // 0-based
+    let rowCount = usedRange.getRowCount();
+    let colCount = usedRange.getColumnCount();
+
+    // Autofit each column
+    for (let c = 0; c < colCount; c++) {
+      try {
+        let colRange = selectedSheet.getRangeByIndexes(startRow, startCol + c, rowCount, 1);
+        colRange.getFormat().autofitColumns();
+      } catch (e) {
+        // ignore column autofit errors in some Flow contexts
+      }
+    }
+
+    // Autofit rows and center align whole usedRange
+    try { usedRange.getFormat().autofitRows(); } catch (e) { /* ignore */ }
+    try {
+      usedRange.getFormat().setHorizontalAlignment(ExcelScript.HorizontalAlignment.center);
+      usedRange.getFormat().setVerticalAlignment(ExcelScript.VerticalAlignment.center);
+    } catch (e) { /* ignore */ }
+  }
+
+  // ===== Protect worksheet but keep header row unlocked and allow filtering =====
+  try { selectedSheet.getProtection().unprotect(); } catch (e) { /* ignore */ }
+
+  if (usedRange) {
+    try {
+      // Unlock all cells first
+      usedRange.getFormat().getProtection().setLocked(false);
+    } catch (e) { /* ignore */ }
+
+    // Compute Excel-style last row number (usedRange rowIndex is 0-based)
+    let lastRowNumber = usedRange.getRowIndex() + usedRange.getRowCount();
+    if (lastRowNumber < 2) lastRowNumber = 2; // ensure at least row 2
+
+    // 🔒 Lock everything except header + Attest/Revoke column (H)
+    try {
+      let rangesToLock = [
+        selectedSheet.getRange(`A2:G${lastRowNumber}`), // Lock Account Name → Cost Center
+        selectedSheet.getRange(`I2:K${lastRowNumber}`)  // Lock Revoke Comments → Attested On
+      ];
+      rangesToLock.forEach(r => r.getFormat().getProtection().setLocked(true));
+
+      // 🔓 Keep header row A1:K1 always unlocked
+      selectedSheet.getRange("A1:K1").getFormat().getProtection().setLocked(false);
+
+      // 🔓 Attest/Revoke column (H) remains unlocked for user input
+      selectedSheet.getRange(`H2:H${lastRowNumber}`).getFormat().getProtection().setLocked(false);
+    } catch (e) { /* ignore */ }
+  }
+
+  // Re-protect sheet (allow selection of unlocked cells + filtering)
+  try {
+    selectedSheet.getProtection().protect({
+      selectionMode: ExcelScript.ProtectionSelectionMode.unlocked,
+      allowAutoFilter: true
+    });
+  } catch (e) { /* ignore protect errors in Flow contexts */ }
+
+  console.log("✅ Script finished: data inserted, autofit applied, dropdown set, only Attest/Revoke editable, header row unlocked, filtering enabled.");
+}
+
+// Interface
+interface arrayofdata {
+  AccountName: string,
+  AccountID: string,
+  MALCode: string,
+  BusinessApplication: string,
+  RoleEntitlement: string,
+  RoleEntitlementDescription: string,
+  CostCenter: string,
+  AttestRevoke: string,
+  RevokeComments: string,
+  AttestedBy: string,
+  AttestedOn: string
+}
